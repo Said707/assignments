@@ -2,6 +2,7 @@ import telebot
 from telebot import types
 import json
 import time
+from math import ceil
 TOKEN = '699336375:AAE_mVS5z5fXQvNzVH3ISWxoXXWvTYpnJas'
 #TOKEN = '790147863:AAEDQrQFd5s2Ds1PQPWdb5ZHiqOOGMBOT2A'
 selectedGroup = [] # todo: save these in a file,
@@ -9,17 +10,41 @@ registerUserStep = {}  # so they won't reset every time the bot restarts
 uploadFileStep = {} # being able to upload file
 adminStep = {} # steps for teacher action
 user_info = {} # for registration process
+guruh_studentlari = []
+
+admin_cid = []
+login = ""
+
 
 def sort_key(dic):
     return dic["full_name"]
+
+def sort_key_2(dic):
+    return dic["group"]
+
+def get_login(uid):
+    global login
+    with open("access_control.json", 'r') as f:
+        data = json.load(f)
+    for admin in data:
+        if admin["id"] == uid:
+            login=admin["full_name"]
+
+with open("register_access.json", 'r') as f:
+        register_access = json.load(f)
 
 with open("users.json", 'r') as f:
         dt = json.load(f)
         # is a LIST
 dt.sort(key = sort_key)
+dt.sort(key = sort_key_2)
+
+with open("access_control.json", 'r') as f:
+        access_control = json.load(f)
+
 with open("admins.json", 'r') as f:
         admins = json.load(f)
-          # is a LIST
+          # is a listener
 
 
 # KEYBOARD BUTTONS
@@ -28,13 +53,6 @@ startSelect.add("Talaba", "O'qituvchi")
 
 typeSelect = types.ReplyKeyboardMarkup(resize_keyboard=True,row_width=3,one_time_keyboard=True)  # create selection keyboard
 typeSelect.add('Mustaqil ish', 'Laboratoriya ish', 'Amaliy ish')
-
-group_message = types.ReplyKeyboardMarkup(resize_keyboard=True,row_width=4,one_time_keyboard=True)  # create selection keyboard
-group_message.add("310-17", "311-17","312-17","313-17","314-17","315-17","316-17","317-17")
-group_message.add("Barcha")
-
-groupSelect = types.ReplyKeyboardMarkup(resize_keyboard=True,row_width=4,one_time_keyboard=True)  # create selection keyboard
-groupSelect.add("310-17", "311-17","312-17","313-17","314-17","315-17","316-17","317-17")
 
 hideBoard = types.ReplyKeyboardRemove()  # if sent as reply_markup, will hide the keyboard
 
@@ -74,12 +92,33 @@ def get_admin_step(uid):
         adminStep[uid] = 0
         return 0
 
+def check_if_admin_exist(name):
+    with open("access_control.json", 'r') as f:
+        data = json.load(f)
+    for admin in data:
+        if admin["full_name"] == name:
+            return admin["password"]
+
+
 def check_if_admin(uid):
     if uid in admins:
         return True
     else:
         return False
 
+def get_admin_groups(login):
+    with open("access_control.json", 'r') as f:
+        data = json.load(f)
+    for admin in data:
+        if admin["full_name"] == login or admin["id"] == login:
+            return admin["groups"]
+
+def get_admin_access(login):
+    with open("access_control.json", 'r') as f:
+        data = json.load(f)
+    for admin in data:
+        if admin["full_name"] == login:
+            return admin["access"]
 
 
 def check_if_not_exist(uid):
@@ -107,6 +146,7 @@ def command_start(m):
     cid = m.chat.id
     if check_if_admin(cid):
         command_help(m)
+
     elif check_if_not_exist(cid):
         bot.send_message(cid,"Salom hurmatli foydalanuvchi, o'zingizni tanishtiring!",reply_markup=startSelect)
         registerUserStep[cid] = 1
@@ -129,7 +169,7 @@ def register_step_zero(m):
             registerUserStep[cid] = 4 # user can upload files
             uploadFileStep[cid] = 0 # user can choose what type of file can upload
     elif text == "O'qituvchi":
-        bot.send_message(cid,"Parolni kiriting!", reply_markup=hideBoard)
+        bot.send_message(cid,"Login:", reply_markup=hideBoard)
         registerUserStep[cid] = 100  # reset the users uploading step back to 0
         adminStep[cid] = 1
     
@@ -141,6 +181,14 @@ def register_step_zero(m):
 @bot.message_handler(func=lambda message: get_reg_step(message.chat.id) == 2)
 def register_step_one(m):
     cid = m.chat.id
+    group = m.text
+    global guruh_studentlari
+    if group in register_access:
+        guruh_studentlari = register_access[group]
+    else:
+        bot.send_message(cid, "Kechirasiz, bunday guruh bizning platformadan ro'yhatdan o'ta olmaydi. Guruhingiz raqamini tekshirib ko'rib qaytadan kiriting!")
+        registerUserStep[cid] = 2
+        return 0
     user_info["id"] =  cid
     user_info["group"] =  m.text
     bot.send_message(cid,"Yaxshi. Endi to'liq familiya ismingizni kiriting!\n(Masalan: Anvarov Doston)")
@@ -149,7 +197,14 @@ def register_step_one(m):
 @bot.message_handler(func=lambda message: get_reg_step(message.chat.id) == 3)
 def register_step_two(m):
     cid = m.chat.id
+    full_name = m.text
     global user_info
+    global guruh_studentlari
+    if not full_name in guruh_studentlari:
+        bot.send_message(cid,"Ushbu guruhda bunday talaba yo'q. F.I. gizni tekshirib qaytadan kiriting!")
+        registerUserStep[cid] = 3
+        return 0
+    fam, ism = full_name.split(" ")    
     user_info["full_name"] = m.text
     dt.append(user_info)
     print(user_info)
@@ -159,7 +214,7 @@ def register_step_two(m):
     dt.sort(key = sort_key)
     with open("users.json", 'w') as wf:
         json.dump(dt, wf, indent=4)     # student has been registered and data saved
-    bot.send_message(cid,"Ma'lumotlaringiz muvofaqqiyatli kiritildi!\nFayl yuklash uchun /upload komandasini bosing!")
+    bot.send_message(cid,f"{ism}! Ma'lumotlaringiz muvofaqqiyatli kiritildi!\nFayl yuklash uchun /upload komandasini bosing!")
     registerUserStep[cid] = 4 # user can upload files
     uploadFileStep[cid] = 0 # user can choose what type of file can upload
 
@@ -197,6 +252,7 @@ def msg_type_of_file_select(m):
 @bot.message_handler(commands=['help'])
 def command_help(m):
     cid = m.chat.id
+    get_login(cid)
     if check_if_admin(cid):
         help_text = "Hurmatli o'qituvchi!\nSiz uchun quyidagi komandalar mavjud: \n"
         for key in commands_admin:  # generate help text out of the commands dictionary defined at the top
@@ -212,14 +268,34 @@ def command_help(m):
 
 
 
+###################################################################################################
+###################################################################################################
 
 
+group_message = types.ReplyKeyboardMarkup(resize_keyboard=True,row_width=4,one_time_keyboard=True)  # create selection keyboard
 
+groupSelect = types.ReplyKeyboardMarkup(resize_keyboard=True,row_width=4,one_time_keyboard=True)  # create selection keyboard
 
+def keyboard_buttons(button,arr):
+    i = 0
+    try:
+        r = len(arr)/4
+        k = ceil(r)
+    except:
+        r=0
+        k=0
+    for x in range(0,k):
 
-
-
-
+        if r >= 1:
+            button.add(arr[i],arr[i+1],arr[i+2],arr[i+3])
+            r-=1
+            i+=4
+        elif r == 0.75:
+            button.add(arr[i],arr[i+1],arr[i+2])
+        elif r == 0.5:
+            button.add(arr[i],arr[i+1])
+        elif r == 0.25:
+             button.add(arr[i])
 
 
 works = types.InlineKeyboardMarkup(row_width=5)
@@ -235,55 +311,102 @@ ai1 = types.InlineKeyboardButton(text='1-AI👨‍💻',callback_data='1-A')
 ai2 = types.InlineKeyboardButton(text='2-AI👨‍💻',callback_data='2-A')
 ai3 = types.InlineKeyboardButton(text='3-AI👨‍💻',callback_data='3-A')
 ai4 = types.InlineKeyboardButton(text='4-AI👨‍💻',callback_data='4-A')
-works.add(mi1,mi2,lb1,lb2,lb3,lb4,ai1,ai2,ai3,ai4)
+
+
+def inline_buttons(acc):
+    try:
+        if "MI" in acc:
+            works.add(mi1,mi2)
+        if "LI" in acc:
+            works.add(lb1,lb2,lb3,lb4)
+        if "AI" in acc:
+            works.add(ai1,ai2,ai3,ai4)
+    except:
+        pass
+
+# # SEND MESSAGE
+# group1 = get_admin_groups(login) # array
+# keyboard_buttons(group_message,group1) 
+# group_message.add("Barcha")
+# # GET FILES
+# group2 = get_admin_groups(login) # array
+# keyboard_buttons(groupSelect,group2)  
+# # GET FILES === INLINE BUTTONS
+# access = get_admin_access(login) # array
+# inline_buttons(access) # inline button
+
 
 # ADMIN -- TEACHER STAFF
 @bot.message_handler(func=lambda message: get_admin_step(message.chat.id) == 1)
-def verification(m):
+def authorization(m):
     cid = m.chat.id
-    text = m.text
-    strong_password = 'J25sp982tT9;6rM'
-    if text == strong_password:
+    global login 
+    login = m.text # login 
+    adminStep[cid] = 2
+    bot.send_message(cid,"Parol:")
+
+@bot.message_handler(func=lambda message: get_admin_step(message.chat.id) == 2)
+def identification(m):
+    cid = m.chat.id
+    parol = m.text # password
+    if parol == check_if_admin_exist(login):
         if not check_if_admin(cid):
             admins.append(cid)
             with open("admins.json", 'w') as wf:
-                json.dump(admins, wf, indent=4) 
+                json.dump(admins, wf, indent=4)
+        for e in access_control:
+            if e["password"] == parol:
+                e["id"] = cid
+            with open("access_control.json", 'w') as f:
+                json.dump(access_control,f, indent=4)   
+
         bot.send_message(cid, "Parol mos tushdi!")
         command_help(m)
-        adminStep[cid] = 2
+        adminStep[cid] = 3
     else:
         adminStep[cid] = 0
-        bot.send_message(cid, "Parol noto'g'ri!")
+        bot.send_message(cid, "Login yoki Parol noto'g'ri!")
         command_start(m)
 
-
+time1 = 0
 @bot.message_handler(func=lambda message: check_if_admin(message.chat.id) ,commands=['send_message'])
 def command_send_message(m):
     cid = m.chat.id
+    get_login(cid)
+    global time1
+    if not time1>0:
+        group1 = get_admin_groups(login) # array
+        keyboard_buttons(group_message,group1) 
+        group_message.add("Barcha")
+        time1=1
+    get_login(cid)
     bot.send_message(cid, "Qaysi guruh talabalariga xabar yozmoqchisiz?", reply_markup=group_message)
-    adminStep[cid] = 3 # send message command is selected
+    adminStep[cid] = 4 # send message command is selected
 
 
-@bot.message_handler(func=lambda message: check_if_admin(message.chat.id) and adminStep[message.chat.id] == 3)
+@bot.message_handler(func=lambda message: check_if_admin(message.chat.id) and adminStep[message.chat.id] == 4)
 def send_gruop_message(m):
     cid = m.chat.id
+    get_login(cid)
     text = m.text
     bot.send_chat_action(cid, 'typing')
     if text == "Barcha" or not check_if_not_exist(text) :
         bot.send_message(cid,f"Demak, {text}ga yubormoqchi bo'lgan xabaringizni kiriting!",reply_markup=hideBoard)
         selectedGroup.append(text)
-        adminStep[cid] = 4  
+        adminStep[cid] = 5  
     elif check_if_not_exist(cid):
-        bot.send_message(cid, "Ushbu guruh talabalaridan hech kim hali ro'yhatdan o'tmagan!")
+        bot.send_message(cid, "Ushbu guruh talabalaridan hech kim hali ro'yhatdan o'tmagan!",reply_markup=hideBoard)
+        adminStep[cid] = 100 
     else:
         bot.send_message(cid, "Sizga taqdim qilingan knopkalardan foydalaning, iltimos!")
         bot.send_message(cid, "Qayta urinib ko'ring!")
  
-@bot.message_handler(func=lambda message: check_if_admin(message.chat.id) and adminStep[message.chat.id] == 4)
+@bot.message_handler(func=lambda message: check_if_admin(message.chat.id) and adminStep[message.chat.id] == 5)
 def send_gruop_text(m):
     cid = m.chat.id
     text = m.text
-    
+    get_login(cid)
+    groups = get_admin_groups(cid)
     try:
         group_num = selectedGroup[-1]
     except:
@@ -292,25 +415,40 @@ def send_gruop_text(m):
     if group_num != "Barcha":
         for each_user in dt:
             if each_user["group"] == group_num:
-                bot.send_message(each_user["id"], "ADMIN:\n"+text)
+                try:
+                    bot.send_message(each_user["id"], "ADMIN:\n"+text)
+                except:
+                    pass
     else:
         for each_user in dt:
-            bot.send_message(each_user["id"], "ADMIN:\n"+text)
-
+            if each_user["group"] in groups:
+                try:
+                    bot.send_message(each_user["id"], "ADMIN:\n"+text)
+                except:
+                    pass
     bot.send_message(cid, "Xabar jo'natildi!")
-    adminStep[cid] = 2
+    adminStep[cid] = 100
 
-
+time2 = 0
 @bot.message_handler(func=lambda message: check_if_admin(message.chat.id), commands=['get_files'])
 def command_get_files(m):
     cid = m.chat.id
+    get_login(cid)
+    global time2
+    if not time2>0:
+        group2 = get_admin_groups(login) # array
+        keyboard_buttons(groupSelect,group2)  
+        time2=1
     bot.send_message(cid, "Guruhni tanlang!", reply_markup=groupSelect)
-    adminStep[cid] = 5 # get files command is selected
+    adminStep[cid] = 6 # get files command is selected
 
-@bot.message_handler(func=lambda message: check_if_admin(message.chat.id) and adminStep[message.chat.id] == 5)
+time3 = 0
+@bot.message_handler(func=lambda message: check_if_admin(message.chat.id) and adminStep[message.chat.id] == 6)
 def get_files_gruop(m):
     cid = m.chat.id
     group_num = m.text
+    get_login(cid)
+    global time3
     bot.send_chat_action(cid, 'typing')
     if not check_if_not_exist(group_num) :
         list_of_students = f"{group_num}-guruhdan quyidagi talabalar ro'yhatdan o'tganlar:\n"
@@ -320,20 +458,27 @@ def get_files_gruop(m):
                 list_of_students += str(i)+ "." + each_user["full_name"] + "\n"
                 i+=1
         bot.send_message(cid, list_of_students,reply_markup=hideBoard)
+        if not time3>0:
+            access = get_admin_access(login) # array
+            inline_buttons(access) # inline button
+            time3 = 1
         bot.send_message(cid, "Qaysi ishni olmoqchisiz?",reply_markup=works)
         selectedGroup.append(group_num)
-        adminStep[cid] = 6  
+        adminStep[cid] = 7  
     elif check_if_not_exist(cid):
-        bot.send_message(cid, "Ushbu guruh talabalaridan hech kim hali ro'yhatdan o'tmagan!")
+        bot.send_message(cid, "Ushbu guruh talabalaridan hech kim hali ro'yhatdan o'tmagan!", reply_markup=hideBoard)
+        adminStep[cid] = 100
+
     else:
         bot.send_message(cid, "Sizga taqdim qilingan knopkalardan foydalaning, iltimos!")
         bot.send_message(cid, "Qayta urinib ko'ring!")
 
 
 
-@bot.callback_query_handler(func=lambda call: True and check_if_admin(call.message.chat.id) and adminStep[call.message.chat.id] == 6)
+@bot.callback_query_handler(func=lambda call: True and check_if_admin(call.message.chat.id) and adminStep[call.message.chat.id] == 7)
 def  inline_callback(call):
     cid = call.message.chat.id
+    get_login(cid)
     try:
         group_num = selectedGroup[-1]
     except:
@@ -354,17 +499,12 @@ def  inline_callback(call):
 
 
 
-
-
-
-
-
-@bot.message_handler(func=lambda message: message.text == "0")
-def bug(m):
-    c = 780193419
+# @bot.message_handler(func=lambda message: message.text == "0")
+# def bug(m):
+#     c = 780193419
     
-    bot.send_message(c, "Hey")
-    bot.send_message(c, "Said")
+#     bot.send_message(c, "Hey")
+#     bot.send_message(c, "Said")
 
 # filter on a specific message	
 @bot.message_handler(func=lambda message: message.text == "hi")
